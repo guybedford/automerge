@@ -464,7 +464,7 @@ impl OpSet {
         let mut text_iter = self.cols.index.text.iter_range(range.clone());
         let tx = text_iter.advance_prefix((index.get() - 1) as u64)?;
         let start_pos = tx.pos.min(range.end);
-        let current_acc = tx.prefix_delta as usize;
+        let current_acc = tx.delta as usize;
 
         let iter = self.iter_range(&(start_pos..range.end));
         let marks = self.cols.index.mark.rich_text_at(start_pos, None);
@@ -679,7 +679,7 @@ impl OpSet {
         if let Some(tx) = seek {
             if let Some(op) = self.get(tx.pos) {
                 return OpsFound {
-                    index: tx.prefix_delta as usize,
+                    index: tx.delta as usize,
                     ops: vec![op],
                     range: tx.pos..tx.pos + 1,
                     end_pos: tx.pos + 1,
@@ -734,16 +734,14 @@ impl OpSet {
         let index;
         if encoding == SequenceType::List {
             assert!(obj_range.contains(&pos)); // safe to unwrap
-            let mut top_iter = self.cols.index.top.iter_range(obj_range.clone());
-            let tx = top_iter.advance_to(pos).unwrap();
-            visible = tx.value;
-            index = tx.prefix_delta;
+            let prefix = self.cols.index.top.delta(obj_range.start, pos).unwrap();
+            visible = prefix.value;
+            index = prefix.delta as usize;
         } else {
             assert!(obj_range.contains(&pos)); // safe to unwrap
-            let mut text_iter = self.cols.index.text.iter_range(obj_range.clone());
-            let tx = text_iter.advance_to(pos).unwrap();
-            visible = tx.value.is_some();
-            index = tx.prefix_delta as usize;
+            let prefix = self.cols.index.text.delta(obj_range.start, pos).unwrap();
+            visible = prefix.value.is_some();
+            index = prefix.delta as usize;
         }
         Some(FoundOpId { op, index, visible })
     }

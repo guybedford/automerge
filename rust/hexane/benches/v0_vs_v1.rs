@@ -1737,3 +1737,107 @@ mod save_opt_u64 {
         bencher.bench_local(|| col.save());
     }
 }
+
+#[divan::bench_group(name = "iter_range_next")]
+mod iter_range_next {
+    use super::*;
+
+    // 100k element column, walked in 1000 contiguous 100-element ranges.
+    // Each iteration of the bench does 1000 `iter_range(r).next()` calls —
+    // measuring the cost of "set up an iter at an arbitrary position and
+    // pull a single item."  Same underlying data across all 5 column types
+    // (monotonic i64 counters).
+
+    const N: usize = 100_000;
+    const STEP: usize = 100;
+
+    fn seeded_monotonic_i64s(n: usize) -> Vec<i64> {
+        let mut state = 0xCAFEBABE_u64;
+        let mut acc = 0i64;
+        (0..n)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                acc += (state % 10) as i64;
+                acc
+            })
+            .collect()
+    }
+
+    fn ranges() -> impl Iterator<Item = std::ops::Range<usize>> + Clone {
+        (0..N).step_by(STEP).map(|s| s..(s + STEP).min(N))
+    }
+
+    #[divan::bench(max_time = Duration::from_secs(5), sample_count = 20)]
+    fn v0_int(bencher: Bencher) {
+        let mut c = ColumnData::<IntCursor>::new();
+        c.splice(0, 0, seeded_monotonic_i64s(N));
+        bencher.bench_local(|| {
+            let mut acc = 0i64;
+            for r in ranges() {
+                if let Some(Some(v)) = c.iter_range(r).next() {
+                    acc = acc.wrapping_add(v.into_owned());
+                }
+            }
+            std::hint::black_box(acc)
+        });
+    }
+
+    #[divan::bench(max_time = Duration::from_secs(5), sample_count = 20)]
+    fn v0_delta(bencher: Bencher) {
+        let mut c = ColumnData::<DeltaCursor>::new();
+        c.splice(0, 0, seeded_monotonic_i64s(N));
+        bencher.bench_local(|| {
+            let mut acc = 0i64;
+            for r in ranges() {
+                if let Some(Some(v)) = c.iter_range(r).next() {
+                    acc = acc.wrapping_add(v.into_owned());
+                }
+            }
+            std::hint::black_box(acc)
+        });
+    }
+
+    #[divan::bench(max_time = Duration::from_secs(5), sample_count = 20)]
+    fn v1_column(bencher: Bencher) {
+        let c = v1::Column::<i64>::from_values(seeded_monotonic_i64s(N));
+        bencher.bench_local(|| {
+            let mut acc = 0i64;
+            for r in ranges() {
+                if let Some(v) = c.iter_range(r).next() {
+                    acc = acc.wrapping_add(v);
+                }
+            }
+            std::hint::black_box(acc)
+        });
+    }
+
+    #[divan::bench(max_time = Duration::from_secs(5), sample_count = 20)]
+    fn v1_prefix(bencher: Bencher) {
+        let c = PrefixColumn::<i64>::from_values(seeded_monotonic_i64s(N));
+        bencher.bench_local(|| {
+            let mut acc = 0i64;
+            for r in ranges() {
+                if let Some((_prefix, v)) = c.iter_range(r).next() {
+                    acc = acc.wrapping_add(v);
+                }
+            }
+            std::hint::black_box(acc)
+        });
+    }
+
+    #[divan::bench(max_time = Duration::from_secs(5), sample_count = 20)]
+    fn v1_delta(bencher: Bencher) {
+        let c = DeltaColumn::<i64>::from_values(seeded_monotonic_i64s(N));
+        bencher.bench_local(|| {
+            let mut acc = 0i64;
+            for r in ranges() {
+                if let Some(v) = c.iter_range(r).next() {
+                    acc = acc.wrapping_add(v);
+                }
+            }
+            std::hint::black_box(acc)
+        });
+    }
+}

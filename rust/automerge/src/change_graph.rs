@@ -337,10 +337,9 @@ impl ChangeGraph {
             let num_ops = self.num_ops.get(i).unwrap_or_default();
             let message = self.messages.get(i).flatten().map(Cow::Borrowed);
 
-            // FIXME - this needs a test
-            let meta = self.extra_bytes_meta.get_delta(0, i).unwrap();
-            let meta_start = meta.prefix_delta as usize;
-            let meta_range = meta_start..(meta_start + meta.value.length());
+            let (meta_prefix, meta_value) = self.extra_bytes_meta.get(i).unwrap();
+            let meta_start = meta_prefix as usize;
+            let meta_range = meta_start..(meta_start + meta_value.length());
             let extra = Cow::Borrowed(&self.extra_bytes_raw[meta_range]);
 
             let deps = self
@@ -416,9 +415,9 @@ impl ChangeGraph {
                 let message = self.messages.get(i).flatten().map(Cow::Borrowed);
 
                 // FIXME - this needs a test
-                let meta = self.extra_bytes_meta.get_delta(0, i).unwrap();
-                let meta_start = meta.prefix_delta as usize;
-                let meta_range = meta_start..(meta_start + meta.value.length());
+                let (meta_prefix, meta_value) = self.extra_bytes_meta.get(i).unwrap();
+                let meta_start = meta_prefix as usize;
+                let meta_range = meta_start..(meta_start + meta_value.length());
                 let extra = Cow::Borrowed(&self.extra_bytes_raw[meta_range]);
 
                 let deps = self.parents(index).map(|p| p.0 as u64).collect::<Vec<_>>();
@@ -798,7 +797,8 @@ impl ChangeGraphCols {
         let len = actors.len();
         let opts = v1::LoadOpts::new().with_length(len);
 
-        let timestamps = v1::DeltaColumn::<i64>::load_with(time_bytes, opts.with_fill(0))?;
+        let timestamps =
+            v1::DeltaColumn::<i64>::load_with(time_bytes, opts.with_fill(Some(0i64)))?;
         let messages =
             v1::Column::<Option<String>>::load_with(message_bytes, opts.with_fill(None))?;
         let extra_bytes_meta =
@@ -1131,9 +1131,9 @@ impl<'a> Iterator for ChangeIter<'a> {
 
         let start_op = max_op - num_ops + 1;
 
-        let meta = self.extra_bytes_meta.advance_to(i)?;
-        let meta_start = meta.prefix_delta as usize;
-        let meta_range = meta_start..(meta_start + meta.value.length());
+        let (meta_prefix, meta_value) = self.extra_bytes_meta.next()?;
+        let meta_start = meta_prefix as usize;
+        let meta_range = meta_start..(meta_start + meta_value.length());
         let extra = Cow::Borrowed(&self.graph.extra_bytes_raw[meta_range]);
         let deps = self
             .graph
@@ -1166,8 +1166,8 @@ impl<'a> Iterator for ChangeIter<'a> {
 
         let start_op = max_op - num_ops + 1;
 
-        let meta = self.extra_bytes_meta.advance_to(i)?;
-        let meta_start = meta.prefix_delta as usize;
+        let meta = self.extra_bytes_meta.delta_nth(n)?;
+        let meta_start = meta.delta as usize;
         let meta_range = meta_start..(meta_start + meta.value.length());
         let extra = Cow::Borrowed(&self.graph.extra_bytes_raw[meta_range]);
 
